@@ -1,0 +1,313 @@
+// Collaborative Cloud IDE + Learning Platform - Prisma Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String    // Hashed password
+  avatar        String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  ownedProjects Project[]         @relation("ProjectOwner")
+  workspaceAccess WorkspaceAccess[]
+  enrollments   Enrollment[]
+  sessions      Session[]
+  accounts      Account[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================
+// PROJECTS & FILES
+// ============================================
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  language    String   @default("javascript") // Main language/stack
+  template    String?  // Template used (react, nextjs, node, etc.)
+  isPublic    Boolean  @default(false)
+
+  ownerId     String
+  owner       User     @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  files       File[]
+  folders     Folder[]
+  access      WorkspaceAccess[]
+  terminals   Terminal[]
+
+  @@map("projects")
+}
+
+model Folder {
+  id        String   @id @default(cuid())
+  name      String
+  path      String   // Full path: /src/components
+  parentId  String?  // Parent folder ID (null for root)
+
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  files     File[]
+
+  @@unique([projectId, path])
+  @@map("folders")
+}
+
+model File {
+  id        String   @id @default(cuid())
+  name      String
+  path      String   // Full path: /src/components/Button.tsx
+  content   String   @db.Text // File content (for small files)
+  size      Int      @default(0) // File size in bytes
+  language  String?  // File language (typescript, python, etc.)
+
+  folderId  String?
+  folder    Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // For large files, store in R2 and keep reference
+  storageUrl String? // R2 URL if file is stored externally
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, path])
+  @@map("files")
+}
+
+// ============================================
+// COLLABORATION & ACCESS
+// ============================================
+
+model WorkspaceAccess {
+  id        String   @id @default(cuid())
+  role      Role     @default(VIEWER)
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, projectId])
+  @@map("workspace_access")
+}
+
+enum Role {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+model Terminal {
+  id          String   @id @default(cuid())
+  name        String   @default("Terminal")
+  shellType   String   @default("bash") // bash, zsh, sh, etc.
+  isActive    Boolean  @default(true)
+
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("terminals")
+}
+
+// ============================================
+// LEARNING PLATFORM
+// ============================================
+
+model Course {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @db.Text
+  thumbnail   String?
+  techStack   String   // react, nodejs, python, go, rust, etc.
+  level       Level    @default(BEGINNER)
+  isPublished Boolean  @default(false)
+  duration    Int?     // Estimated duration in minutes
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  lessons     Lesson[]
+  enrollments Enrollment[]
+
+  @@map("courses")
+}
+
+enum Level {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+model Lesson {
+  id          String   @id @default(cuid())
+  title       String
+  content     String   @db.Text // Markdown content
+  videoUrl    String?
+  order       Int      // Lesson order in course
+  duration    Int?     // Duration in minutes
+
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  challenges  Challenge[]
+  progress    Progress[]
+
+  @@unique([courseId, order])
+  @@map("lessons")
+}
+
+model Challenge {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @db.Text
+  starterCode String   @db.Text // Initial code for the challenge
+  solution    String   @db.Text // Solution code
+  tests       String   @db.Text // JSON string of test cases
+  difficulty  Level    @default(BEGINNER)
+  points      Int      @default(10)
+
+  lessonId    String
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  submissions Submission[]
+
+  @@map("challenges")
+}
+
+model Submission {
+  id          String   @id @default(cuid())
+  code        String   @db.Text
+  passed      Boolean  @default(false)
+  score       Int      @default(0)
+  feedback    String?  @db.Text
+
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  userId      String
+
+  createdAt   DateTime @default(now())
+
+  @@map("submissions")
+}
+
+model Enrollment {
+  id        String   @id @default(cuid())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  progress  Progress[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, courseId])
+  @@map("enrollments")
+}
+
+model Progress {
+  id           String    @id @default(cuid())
+  completed    Boolean   @default(false)
+  completedAt  DateTime?
+  timeSpent    Int       @default(0) // Time spent in seconds
+
+  enrollmentId String
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  lessonId     String
+  lesson       Lesson     @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([enrollmentId, lessonId])
+  @@map("progress")
+}
