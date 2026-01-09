@@ -227,7 +227,7 @@ export default function IDEPage() {
 
         <div className="flex-1 flex flex-col overflow-hidden">
           <div style={{ flex: editorHeight }} className="flex overflow-hidden min-h-[300px]">
-            <div className={showPreview ? 'w-1/2 h-full' : 'w-full h-full'}>
+            <div className={showPreview ? 'flex-1 h-full' : 'w-full h-full'}>
               {activeFile ? (
                 <Editor
                   value={editorValue}
@@ -243,16 +243,17 @@ export default function IDEPage() {
             </div>
 
             {showPreview && (
-              <>
-                <Resizer
-                  direction="horizontal"
-                  onResize={() => {}}
-                />
-                <div className="flex-1 h-full">
-                  <Preview key="preview" />
-                </div>
-              </>
+              <Resizer
+                direction="horizontal"
+                onResize={() => {}}
+              />
             )}
+            <div
+              className="flex-1 h-full min-w-0"
+              style={{ display: showPreview ? 'block' : 'none' }}
+            >
+              <Preview key={`preview-${projectId}`} />
+            </div>
           </div>
 
           <Resizer

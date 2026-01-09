@@ -7,6 +7,7 @@ export class WebContainerService {
   private container: WebContainer | null = null
   private bootPromise: Promise<WebContainer> | null = null
   private serverUrls: Map<number, string> = new Map()
+  private serverReadyCallbacks: Array<(port: number, url: string) => void> = []
 
   private constructor() {}
 
@@ -30,11 +31,38 @@ export class WebContainerService {
     this.container = await this.bootPromise
 
     this.container.on('server-ready', (port, url) => {
-      console.log(`[WebContainer] Server ready on port ${port}: ${url}`)
+      console.log(`[WebContainer] 🚀 Server ready on port ${port}: ${url}`)
       this.serverUrls.set(port, url)
+
+      // Notify all registered callbacks
+      this.serverReadyCallbacks.forEach(callback => {
+        try {
+          callback(port, url)
+        } catch (err) {
+          console.error('[WebContainer] Error in server-ready callback:', err)
+        }
+      })
     })
 
+    console.log('[WebContainer] Boot complete, container ready')
     return this.container
+  }
+
+  onServerReady(callback: (port: number, url: string) => void): () => void {
+    this.serverReadyCallbacks.push(callback)
+
+    // Immediately notify about existing servers
+    this.serverUrls.forEach((url, port) => {
+      callback(port, url)
+    })
+
+    // Return unsubscribe function
+    return () => {
+      const index = this.serverReadyCallbacks.indexOf(callback)
+      if (index > -1) {
+        this.serverReadyCallbacks.splice(index, 1)
+      }
+    }
   }
 
   async getContainer(): Promise<WebContainer> {

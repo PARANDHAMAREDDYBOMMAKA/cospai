@@ -12,100 +12,71 @@ export function Preview({ onClose }: PreviewProps) {
   const [url, setUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0)
-  const hasInitialized = useRef(false)
+  const unsubscribeRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
-    if (hasInitialized.current) return
-    hasInitialized.current = true
+    console.log('[Preview] Effect running, setting up preview...')
 
-    let mounted = true
-    let hasUrl = false
-
-    const checkServer = async () => {
-      if (hasUrl) {
-        console.log('[Preview] Already has URL, skipping check')
-        return
-      }
-
-      console.log('[Preview] Checking for server...')
-
-      // Check for common dev server ports
-      const allUrls = webContainer.getAllServerUrls()
-      console.log('[Preview] All server URLs:', Array.from(allUrls.entries()))
-
-      // Try to get URL for common ports (5173 is Vite default)
-      let serverUrl = webContainer.getServerUrl(5173)
-      if (!serverUrl) {
-        serverUrl = webContainer.getServerUrl()
-      }
-
-      console.log('[Preview] Server URL from WebContainer:', serverUrl)
-
-      if (serverUrl && mounted) {
-        console.log('[Preview] ✅ Found server URL:', serverUrl)
-        hasUrl = true
-        setUrl(serverUrl)
-        setIsLoading(false)
-        return
-      }
-
-      if (allUrls.size > 0 && mounted) {
-        const firstUrl = Array.from(allUrls.values())[0]
-        console.log('[Preview] ✅ Using first available URL:', firstUrl)
-        hasUrl = true
-        setUrl(firstUrl)
-        setIsLoading(false)
-        return
-      }
-
-      console.log('[Preview] ❌ No server URL found yet')
-      if (mounted) {
-        setIsLoading(false)
-      }
-    }
-
-    // Listen for server-ready events
-    const setupServerListener = async () => {
+    const setupPreview = async () => {
       try {
-        const container = await webContainer.getContainer()
-        console.log('[Preview] WebContainer ready, listening for servers')
+        // Ensure WebContainer is booted
+        await webContainer.getContainer()
+        console.log('[Preview] WebContainer ready')
 
-        container.on('server-ready', (port, serverUrl) => {
-          console.log(`[Preview] Server detected on port ${port}: ${serverUrl}`)
-          if (mounted && !hasUrl) {
-            hasUrl = true
+        // Unsubscribe from previous listener if exists
+        if (unsubscribeRef.current) {
+          unsubscribeRef.current()
+        }
+
+        // Subscribe to server-ready events (this will immediately notify about existing servers)
+        unsubscribeRef.current = webContainer.onServerReady((port, serverUrl) => {
+          console.log(`[Preview] 🚀 Server detected on port ${port}: ${serverUrl}`)
+          console.log(`[Preview] Setting URL state to: ${serverUrl}`)
+          setUrl(serverUrl)
+          setIsLoading(false)
+        })
+
+        // Also check current URLs as fallback
+        const allUrls = webContainer.getAllServerUrls()
+        console.log('[Preview] Current server URLs:', Array.from(allUrls.entries()))
+
+        if (allUrls.size > 0) {
+          // Prefer port 5173 (Vite), then 3000 (common dev port), then any
+          let serverUrl = webContainer.getServerUrl(5173)
+          if (!serverUrl) serverUrl = webContainer.getServerUrl(3000)
+          if (!serverUrl) serverUrl = Array.from(allUrls.values())[0]
+
+          if (serverUrl) {
+            console.log('[Preview] ✅ Using server URL:', serverUrl)
             setUrl(serverUrl)
             setIsLoading(false)
           }
-        })
+        } else {
+          console.log('[Preview] ⏳ No server found yet, waiting...')
+          setIsLoading(false)
+        }
       } catch (err) {
-        console.error('[Preview] Error setting up server listener:', err)
+        console.error('[Preview] Error setting up preview:', err)
+        setIsLoading(false)
       }
     }
 
-    setupServerListener()
-    checkServer()
-
-    // Poll every 2 seconds if no URL found
-    const interval = setInterval(() => {
-      if (!hasUrl && mounted) {
-        console.log('[Preview] Polling for server...')
-        checkServer()
-      }
-    }, 2000)
+    setupPreview()
 
     return () => {
-      mounted = false
-      clearInterval(interval)
+      console.log('[Preview] Cleanup - unsubscribing')
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current()
+        unsubscribeRef.current = null
+      }
     }
   }, [])
 
   useEffect(() => {
     // Log the URL being displayed
-    if (url) {
-      console.log('[Preview] Rendering iframe with URL:', url)
-    }
-  }, [url])
+    console.log('[Preview] URL state changed to:', url)
+    console.log('[Preview] isLoading state:', isLoading)
+  }, [url, isLoading])
 
   const handleRefresh = useCallback(() => {
     console.log('[Preview] Manual refresh triggered')
